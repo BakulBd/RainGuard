@@ -12,7 +12,7 @@ const char* password = "momin123";
 FastBot fastBot;
 
 // Initialize Telegram BOT
-#define BOTtoken "BOT_TOKEN"
+#define BOTtoken "7158360864:AAEZhKGgtiH8Al3oyBU5_HSHZS24hz74gIs"
 #define AUTHORIZED_CHAT_ID "656098264"
 #define GROUP_CHAT_ID "-123456789" // Replace with your group chat ID
 
@@ -50,6 +50,12 @@ void sendWelcomeMessage(String chat_id) {
   bot.sendMessage(chat_id, welcome, "");
 }
 
+void sendAlertToAll(String message) {
+  for (const auto& user : authorizedUsers) {
+    bot.sendMessage(user, message, "");
+  }
+}
+
 void handleNewMessages(int numNewMessages) {
   for (int i = 0; i < numNewMessages; i++) {
     String chat_id = String(bot.messages[i].chat_id);
@@ -67,25 +73,39 @@ void handleNewMessages(int numNewMessages) {
     }
 
     if (text == "/rain_on" || text == "/rain_on@rainguard_bot") {
-      bot.sendMessage(chat_id, "Rain Sensor ON", "");
-      rainSensorState = HIGH;
-      digitalWrite(RAIN_SENSOR_PIN, rainSensorState);
-      rainHistory.push_back("Rain Sensor turned ON at " + String(millis() / 1000) + " seconds");
+      if (rainSensorState == HIGH) {
+        bot.sendMessage(chat_id, "Rain Sensor is already ON", "");
+      } else {
+        rainSensorState = HIGH;
+        digitalWrite(RAIN_SENSOR_PIN, rainSensorState);
+        bot.sendMessage(chat_id, "Rain Sensor is now ON", "");
+      }
     }
 
     if (text == "/rain_off" || text == "/rain_off@rainguard_bot") {
-      bot.sendMessage(chat_id, "Rain Sensor OFF", "");
-      rainSensorState = LOW;
-      digitalWrite(RAIN_SENSOR_PIN, rainSensorState);
-      rainHistory.push_back("Rain Sensor turned OFF at " + String(millis() / 1000) + " seconds");
+      if (rainSensorState == LOW) {
+        bot.sendMessage(chat_id, "Rain Sensor is already OFF", "");
+      } else {
+        rainSensorState = LOW;
+        digitalWrite(RAIN_SENSOR_PIN, rainSensorState);
+        bot.sendMessage(chat_id, "Rain Sensor is now OFF", "");
+      }
     }
 
     if (text == "/status" || text == "/status@rainguard_bot") {
       String statusMessage = "🌧️ Rain Status 🌧️\n";
+      statusMessage += "Rain Sensor is " + String(rainSensorState == HIGH ? "ON" : "OFF") + "\n";
       statusMessage += "Currently ";
       statusMessage += rainDetected ? "raining." : "not raining.";
       bot.sendMessage(chat_id, statusMessage, "");
     }
+
+
+    if (text == "/check" || text == "/check@rainguard_bot") {
+      String statusMessage = "/ifttt@IFTTT";
+      bot.sendMessage(chat_id, statusMessage, "");
+    }
+
 
     if (text == "/restart") {
       bot.sendMessage(chat_id, "Restarting...");
@@ -150,28 +170,33 @@ void handleNewMessages(int numNewMessages) {
 }
 
 void checkRainSensor() {
-  int rainValue = digitalRead(RAIN_SENSOR_PIN);
-  if (rainValue == HIGH && !rainDetected) {
-    rainDetected = true;
-    rainStartTime = millis();
-    bot.sendMessage(GROUP_CHAT_ID, "🌧️ Rain started!", "");
-  } else if (rainValue == LOW && rainDetected) {
-    rainDetected = false;
-    rainEndTime = millis();
-    unsigned long duration = (rainEndTime - rainStartTime) / 1000;
-    unsigned long hours = duration / 3600;
-    unsigned long minutes = (duration % 3600) / 60;
-    unsigned long seconds = duration % 60;
-    String durationMessage = "🌦️ Rain stopped. Duration: ";
-    if (hours > 0) {
-      durationMessage += String(hours) + " hours, ";
+  if (rainSensorState == HIGH) { // Check only if the rain sensor is turned ON
+    int rainValue = digitalRead(RAIN_SENSOR_PIN);
+    if (rainValue == HIGH && !rainDetected) {
+      rainDetected = true;
+      rainStartTime = millis();
+      String alertMessage = "🌧️ Rain started!";
+      bot.sendMessage(GROUP_CHAT_ID, alertMessage, "");
+      sendAlertToAll(alertMessage);
+    } else if (rainValue == LOW && rainDetected) {
+      rainDetected = false;
+      rainEndTime = millis();
+      unsigned long duration = (rainEndTime - rainStartTime) / 1000;
+      unsigned long hours = duration / 3600;
+      unsigned long minutes = (duration % 3600) / 60;
+      unsigned long seconds = duration % 60;
+      String durationMessage = "🌦️ Rain stopped. Duration: ";
+      if (hours > 0) {
+        durationMessage += String(hours) + " hours, ";
+      }
+      if (minutes > 0) {
+        durationMessage += String(minutes) + " minutes, ";
+      }
+      durationMessage += String(seconds) + " seconds.";
+      bot.sendMessage(GROUP_CHAT_ID, durationMessage, "");
+      sendAlertToAll(durationMessage);
+      rainHistory.push_back(durationMessage);
     }
-    if (minutes > 0) {
-      durationMessage += String(minutes) + " minutes, ";
-    }
-    durationMessage += String(seconds) + " seconds.";
-    bot.sendMessage(GROUP_CHAT_ID, durationMessage, "");
-    rainHistory.push_back(durationMessage);
   }
 }
 
@@ -200,7 +225,7 @@ void setup() {
   client.setInsecure();
   if (client.connect("api.telegram.org", 443)) {
     Serial.println("Connected to Telegram server.");
-    bot.sendMessage(AUTHORIZED_CHAT_ID, "ESP32 connected to Telegram server.", "");
+    bot.sendMessage(AUTHORIZED_CHAT_ID, "RainGuard is now online and ready to keep you informed about weather conditions.", "");
 
     // Initial authorization and sending welcome message to all authorized users
     authorizedUsers.push_back(AUTHORIZED_CHAT_ID);
@@ -227,10 +252,7 @@ void loop() {
     }
     lastTimeBotRan = millis();
   }
-  
+
   // Continuously check the rain sensor
   checkRainSensor();
 }
-
-
-
