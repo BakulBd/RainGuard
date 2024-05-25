@@ -5,21 +5,25 @@
 #include <vector>
 #include <algorithm>
 #include <DHT.h>
+#include <FastBot.h>
+#include "time.h"
 
 // Replace with your network credentials
 const char* ssid = "GUB-232";
 const char* password = "momin123";
 
+FastBot fastBot;
+
 // Initialize Telegram BOT
-#define BOTtoken "7158360864:AAEZhKGgtiH8Al3oyBU5_HSHZS24hz74gIs"  // Replace with your Bot Token
+#define BOTtoken "BOT_token" // Replace with your bot token
 #define AUTHORIZED_CHAT_ID "656098264"
-#define GROUP_CHAT_ID "-1002020001615"
+#define GROUP_CHAT_ID "-1002020001615" // Replace with your group chat ID
 
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
 
 const int WIFI_CONNECTION_TIMEOUT = 10000; // 10 seconds
-const int RAIN_SENSOR_PIN = 0; // Assuming GPIO 0
+#define RAIN_SENSOR_PIN 12 
 #define DHT_PIN 13
 #define DHTTYPE DHT11
 DHT dht(DHT_PIN, DHTTYPE);
@@ -28,26 +32,51 @@ int botRequestDelay = 1000;
 unsigned long lastTimeBotRan;
 
 bool rainDetected = false;
-bool sensorsOn = true;
 bool forceBoot = false;
 unsigned long rainStartTime;
-unsigned long rainEndTime;
+unsigned long lastTempHumidUpdateTime = 0;
+const unsigned long TEMP_HUMID_UPDATE_INTERVAL = 600000; // 10 minutes in milliseconds
 
 std::vector<String> authorizedUsers = {AUTHORIZED_CHAT_ID};
 std::vector<String> rainHistory;
+
+const char* ntpServer1 = "pool.ntp.org";
+const char* ntpServer2 = "time.nist.gov";
+const long gmtOffset_sec = 6 * 3600;  // GMT+6 for Bangladesh
+const int daylightOffset_sec = 0;
+
+void printLocalTime()
+{
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Failed to obtain time");
+    return;
+  }
+  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
+}
+
+// Function to get the current timestamp in a readable format
+String getCurrentTimestamp() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return "Time not available";
+  }
+  char timestamp[100];
+  strftime(timestamp, sizeof(timestamp), "%A, %B %d %Y %H:%M:%S", &timeinfo); // More readable format
+  return String(timestamp);
+}
 
 void sendWelcomeMessage(String chat_id) {
   Serial.println("Sending welcome message...");
 
   String welcome = "🌧️ Welcome to RainGuard! 🌧️\n\n";
-  welcome += "RainGuard is your reliable friend for detecting and monitoring rain. Here are the available commands:\n\n";
-  welcome += "/status - Check rain status\n";
-  welcome += "/rain_on - Turn ON the Rain Sensor\n";
-  welcome += "/rain_off - Turn OFF the Rain Sensor\n";
+  welcome += "RainGuard is your reliable friend for detecting and monitoring rain and environmental conditions. Here are the available commands:\n\n";
+  welcome += "/status - Check sensor status\n";
   welcome += "/restart - Restart the system\n";
   welcome += "/setwifi <SSID> <PASSWORD> - Set Wi-Fi credentials\n";
   welcome += "/authorize <CHAT_ID> - Authorize a new user\n";
   welcome += "/rainhistory - Get the rain detection history\n";
+  welcome += "/temp_humid - Get temperature and humidity status\n";
 
   bot.sendMessage(chat_id, welcome, "");
 }
@@ -68,22 +97,29 @@ void handleNewMessages(int numNewMessages) {
       sendWelcomeMessage(chat_id);
     }
 
-    if (text == "/rain_on" || text == "/rain_on@rainguard_bot") {
-      bot.sendMessage(chat_id, "Rain Sensor ON", "");
-      rainDetected = true;
-      rainHistory.push_back("Rain Sensor turned ON at " + String(millis() / 1000) + " seconds");
-    }
-
-    if (text == "/rain_off" || text == "/rain_off@rainguard_bot") {
-      bot.sendMessage(chat_id, "Rain Sensor OFF", "");
-      rainDetected = false;
-      rainHistory.push_back("Rain Sensor turned OFF at " + String(millis() / 1000) + " seconds");
-    }
-
     if (text == "/status" || text == "/status@rainguard_bot") {
-      String statusMessage = "🌧️ Rain Status 🌧️\n";
-      statusMessage += "Currently ";
-      statusMessage += rainDetected ? "raining." : "not raining.";
+      String statusMessage = "🌧️ RainGuard Status 🌧️\n\n";
+      statusMessage += "Currently, it is ";
+      statusMessage += rainDetected ? "raining 🌧️\n" : "not raining ☀️\n\n";
+
+      float temperature = dht.readTemperature();
+      float humidity = dht.readHumidity();
+
+      statusMessage += "🌡️ Temperature: ";
+      if (isnan(temperature)) {
+        statusMessage += "Failed to read";
+      } else {
+        statusMessage += String(temperature) + " °C";
+      }
+      statusMessage += "\n";
+
+      statusMessage += "💧 Humidity: ";
+      if (isnan(humidity)) {
+        statusMessage += "Failed to read";
+      } else {
+        statusMessage += String(humidity) + " %";
+      }
+
       bot.sendMessage(chat_id, statusMessage, "");
     }
 
@@ -137,32 +173,73 @@ void handleNewMessages(int numNewMessages) {
 
     if (text == "/rainhistory" || text == "/rainhistory@rainguard_bot") {
       if (rainHistory.empty()) {
-        bot.sendMessage(chat_id, "No rain detection history available", "");
+        bot.sendMessage(chat_id, "No rain detection history available 🌤️", "");
       } else {
-        String history = "🌧️ Rain Detection History:\n";
-        for (const auto& entry : rainHistory) {
-          history += entry + "\n";
+        const size_t maxEntriesPerMessage = 10;
+        size_t totalEntries = rainHistory.size();
+        size_t messageCount = (totalEntries + maxEntriesPerMessage - 1) / maxEntriesPerMessage; // Calculate number of messages needed
+
+        for (size_t i = 0; i < messageCount; ++i) {
+          String historyMessage = "🌧️ Rain Detection History (" + String(i + 1) + "/" + String(messageCount) + "):\n\n";
+          for (size_t j = i * maxEntriesPerMessage; j < (i + 1) * maxEntriesPerMessage && j < totalEntries; ++j) {
+            historyMessage += "• " + rainHistory[j] + "\n";
+          }
+          bot.sendMessage(chat_id, historyMessage, "");
         }
-        bot.sendMessage(chat_id, history, "");
       }
+    }
+
+    if (text == "/temp_humid" || text == "/temp_humid@rainguard_bot") {
+      float temperature = dht.readTemperature();
+      float humidity = dht.readHumidity();
+
+      if (isnan(temperature) || isnan(humidity)) {
+        bot.sendMessage(chat_id, "Failed to read from DHT sensor!", "");
+      } else {
+        String tempHumidMessage = "🌡️ Temperature: " + String(temperature) + " °C\n";
+        tempHumidMessage += "💧 Humidity: " + String(humidity) + " %";
+        bot.sendMessage(chat_id, tempHumidMessage, "");
+      }
+    }
+  }
+}
+
+void sendTempHumidUpdate() {
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+
+  if (!isnan(temperature) && !isnan(humidity)) {
+    String tempHumidMessage = "🌡️ Temperature: " + String(temperature) + " °C\n";
+    tempHumidMessage += "💧 Humidity: " + String(humidity) + " %";
+    for (const auto& chat_id : authorizedUsers) {
+      bot.sendMessage(chat_id, tempHumidMessage, "");
     }
   }
 }
 
 void checkRainSensor() {
   int rainValue = digitalRead(RAIN_SENSOR_PIN);
-  if (rainValue == HIGH && !rainDetected) {
+  if (rainValue == LOW && !rainDetected) {
     rainDetected = true;
     rainStartTime = millis();
-    bot.sendMessage(GROUP_CHAT_ID, "🌧️ Rain started!", "");
-  } else if (rainValue == LOW && rainDetected) {
+    String startMessage = "🌧️ Rain started at " + getCurrentTimestamp() + "!";
+
+    // Send the rain start alert to every authorized user
+    for (const auto& chat_id : authorizedUsers) {
+      bot.sendMessage(chat_id, startMessage, "");
+    }
+
+    Serial.println("Rain detected!");
+  } else if (rainValue == HIGH && rainDetected) {
     rainDetected = false;
-    rainEndTime = millis();
+    unsigned long rainEndTime = millis();
     unsigned long duration = (rainEndTime - rainStartTime) / 1000;
     unsigned long hours = duration / 3600;
     unsigned long minutes = (duration % 3600) / 60;
     unsigned long seconds = duration % 60;
-    String durationMessage = "🌦️ Rain stopped. Duration: ";
+
+    String timestamp = getCurrentTimestamp();
+    String durationMessage = "🌦️ Rain stopped at " + timestamp + ". Duration: ";
     if (hours > 0) {
       durationMessage += String(hours) + " hours, ";
     }
@@ -170,16 +247,21 @@ void checkRainSensor() {
       durationMessage += String(minutes) + " minutes, ";
     }
     durationMessage += String(seconds) + " seconds.";
-    bot.sendMessage(GROUP_CHAT_ID, durationMessage, "");
+
+    // Send the rain stop alert to every authorized user
+    for (const auto& chat_id : authorizedUsers) {
+      bot.sendMessage(chat_id, durationMessage, "");
+    }
+
     rainHistory.push_back(durationMessage);
+    Serial.println("No rain detected.");
   }
 }
 
 void setup() {
   Serial.begin(115200);
 
-  pinMode(RAIN_SENSOR_PIN, INPUT);
-  pinMode(DHT_PIN, INPUT_PULLUP);
+  pinMode(RAIN_SENSOR_PIN, INPUT_PULLUP);
   dht.begin();
 
   // Connect to Wi-Fi
@@ -188,7 +270,7 @@ void setup() {
   unsigned long startTime = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - startTime < WIFI_CONNECTION_TIMEOUT) {
     delay(1000);
-    Serial.println("Connecting to WiFi..");
+    Serial.println("Connecting to WiFi...");
   }
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -198,7 +280,20 @@ void setup() {
     Serial.println("Failed to connect to WiFi.");
   }
 
-  lastTimeBotRan = millis();
+  // Connect to Telegram server
+  client.setInsecure();
+  if (client.connect("api.telegram.org", 443)) {
+    Serial.println("Connected to Telegram server.");
+    bot.sendMessage(AUTHORIZED_CHAT_ID, "ESP32 connected to Telegram server.", "");
+
+    // Initial authorization and sending welcome message to all authorized users
+    sendWelcomeMessage(AUTHORIZED_CHAT_ID);
+  } else {
+    Serial.println("Failed to connect to Telegram server.");
+  }
+
+  // Set up time synchronization
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer1, ntpServer2);
 }
 
 void loop() {
@@ -218,9 +313,15 @@ void loop() {
     }
     lastTimeBotRan = millis();
   }
-  
+
   // Continuously check the rain sensor
   checkRainSensor();
+
+  // Send temperature and humidity update every 10 minutes during rain
+  if (rainDetected && millis() - lastTempHumidUpdateTime >= TEMP_HUMID_UPDATE_INTERVAL) {
+    sendTempHumidUpdate();
+    lastTempHumidUpdateTime = millis();
+  }
 
   // Delay to avoid flooding the server
   delay(1000);

@@ -1,20 +1,18 @@
 # ESP32 Rain Sensor System
 
-This project utilizes an ESP32 microcontroller along with a rain sensor to create a Telegram bot that notifies users when it starts raining. It also integrates with IFTTT to trigger additional actions when rain is detected.
+This project utilizes an ESP32 microcontroller along with a rain sensor and DHT11 sensor to create a Telegram bot that notifies users when it starts raining and provides temperature and humidity updates.
 
 ## Features
 
 - **Rain Detection:** The ESP32 continuously monitors the state of the rain sensor. When rain is detected, it sends a notification to the specified Telegram group chat.
   
-- **Telegram Bot:** Users can interact with the bot by sending commands such as `/on` to enable the rain sensor, `/off` to disable it, `/ifttt` to trigger IFTTT applets, and `/setwifi` to set WiFi credentials.
-
-- **IFTTT Integration:** The bot can trigger IFTTT applets when rain is detected. This allows for various automation tasks such as turning on smart lights or sending notifications to other devices.
+- **Telegram Bot:** Users can interact with the bot by sending commands such as `/status` to check the current status, `/restart` to restart the system, `/setwifi` to set WiFi credentials, `/authorize` to authorize new users, `/rainhistory` to get the rain detection history, and `/temp_humid` to get temperature and humidity updates.
 
 ## Hardware Requirements
 
 - ESP32 microcontroller
 - Rain sensor module
-- LED (optional, for visual indication)
+- DHT11 sensor
 - Jumper wires
 
 ## Software Dependencies
@@ -25,23 +23,34 @@ This project utilizes an ESP32 microcontroller along with a rain sensor to creat
   - WiFiClientSecure.h
   - UniversalTelegramBot.h
   - ArduinoJson.h
+  - DHT.h
+  - FastBot.h
 
 ## Installation and Setup
 
-1. Clone or download the repository to your local machine.
-2. Open the project in Arduino IDE.
-3. Set up your WiFi credentials in the `ssid` and `password` variables.
-4. Configure the Telegram bot settings by replacing the placeholders with your bot token, chat IDs, and root CA certificate for Telegram API.
-5. Connect the rain sensor to the ESP32 as per the pin configurations defined in the code.
-6. Upload the code to your ESP32 board.
-7. Power on the ESP32 and monitor the Serial Monitor for status messages.
+1. **Clone or download the repository** to your local machine.
+2. **Open the project in Arduino IDE.**
+3. **Set up your WiFi credentials** in the `ssid` and `password` variables.
+4. **Configure the Telegram bot settings** by replacing the placeholders with your bot token and chat IDs.
+5. **Connect the rain sensor and DHT11 sensor to the ESP32** as per the pin configurations defined in the code.
+6. **Upload the code to your ESP32 board.**
+7. **Power on the ESP32 and monitor the Serial Monitor** for status messages.
 
 ## Usage
 
-1. Once the device is powered on and connected to WiFi, it will automatically start monitoring the rain sensor.
-2. Users can interact with the bot by sending commands in the specified Telegram group chat.
-3. When rain is detected, the bot will send a notification to the group chat.
-4. Optionally, users can enable IFTTT integration to trigger additional actions based on rain detection.
+1. **Power on the device and connect to WiFi.** It will automatically start monitoring the rain sensor and the DHT11 sensor.
+2. **Interact with the bot** by sending commands in the specified Telegram group chat.
+3. **Receive notifications** when rain is detected.
+4. **Get temperature and humidity updates, check sensor status, restart the system, set WiFi credentials, authorize new users, and view rain detection history** via Telegram commands.
+
+## Commands
+
+- `/status` - Check sensor status
+- `/restart` - Restart the system
+- `/setwifi <SSID> <PASSWORD>` - Set Wi-Fi credentials
+- `/authorize <CHAT_ID>` - Authorize a new user
+- `/rainhistory` - Get the rain detection history
+- `/temp_humid` - Get temperature and humidity status
 
 ## Contributing
 
@@ -49,17 +58,17 @@ Contributions are welcome! If you have ideas for improvements, new features, or 
 
 To contribute to this project, follow these steps:
 
-1. Fork the repository.
-2. Create a new branch for your feature or bug fix.
-3. Make your changes.
-4. Test your changes thoroughly.
-5. Submit a pull request, explaining the purpose of your changes and any considerations for reviewers.
+1. **Fork the repository.**
+2. **Create a new branch** for your feature or bug fix.
+3. **Make your changes.**
+4. **Test your changes thoroughly.**
+5. **Submit a pull request,** explaining the purpose of your changes and any considerations for reviewers.
 
 ## Troubleshooting
 
-- If the device fails to connect to WiFi, double-check the SSID and password in the code.
-- Ensure that the rain sensor is properly connected to the ESP32 and functioning correctly.
-- Verify that the Telegram bot token, chat IDs, and root CA certificate are correctly configured in the code.
+- **WiFi Connection Issues:** Double-check the SSID and password in the code.
+- **Sensor Connection Issues:** Ensure that the rain sensor and DHT11 sensor are properly connected to the ESP32 and functioning correctly.
+- **Telegram Bot Issues:** Verify that the Telegram bot token and chat IDs are correctly configured in the code.
 
 ## License
 
